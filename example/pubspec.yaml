@@ -12,6 +12,8 @@ dependencies:
 
   elevenlabs_phonemes:
     path: ../
+  
+  rive: ^0.14.0-dev.14
 
 dev_dependencies:
   flutter_test:
@@ -21,4 +23,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  
+  assets:
+    - assets/charachter.riv
 
