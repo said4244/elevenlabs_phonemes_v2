@@ -84,8 +84,22 @@ class _VoiceAssistantDemoState extends State<VoiceAssistantDemo> {
       final endTime = data['end_time'] as num?;
 
       if (char != null) {
-        // First character marks when audio playback started
-        if (_charBuffer.isEmpty) {
+        final prevStartTime =
+            _charBuffer.isNotEmpty ? _charBuffer.last['start_time'] as num? : null;
+        final isNewUtterance = _charBuffer.isEmpty ||
+            (startTime != null && prevStartTime != null && startTime < prevStartTime);
+
+        if (isNewUtterance) {
+          final now = DateTime.now();
+          setState(() {
+            _audioStartTime = now;
+            _charBuffer.clear();
+            transcription = '';
+            _highlightedIndex = null;
+          });
+          debugPrint(
+              '🎵 Starting new utterance at $now (start_time=$startTime, prev=$prevStartTime)');
+        } else if (_audioStartTime == null) {
           _audioStartTime = DateTime.now();
           debugPrint('🎵 Audio playback started at $_audioStartTime');
         }
