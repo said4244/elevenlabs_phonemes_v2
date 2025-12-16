@@ -48,12 +48,12 @@ class _VoiceAssistantDemoState extends State<VoiceAssistantDemo> {
   int? _highlightedIndex;
   DateTime? _audioStartTime; // Track when audio playback started
 
-    // Rive state machine variables
-    RiveWidgetController? _riveController;
-    StateMachine? _smController;
-    NumberInput? _visemeInput;
-    int _visemeValue = 1; // current Viseme value (1-17)
-    final TextEditingController _numberController =
+  // Rive state machine variables
+  RiveWidgetController? _riveController;
+  StateMachine? _smController;
+  NumberInput? _visemeInput;
+  int _visemeValue = 1; // current Viseme value (1-17)
+  final TextEditingController _numberController =
       TextEditingController(text: '1');
 
   @override
@@ -105,6 +105,9 @@ class _VoiceAssistantDemoState extends State<VoiceAssistantDemo> {
         if (startTime != null && endTime != null) {
           _scheduleHighlight(
               _charBuffer.length - 1, startTime.toDouble(), endTime.toDouble());
+
+          final visemeId = _mapCharToViseme(char);
+          _scheduleViseme(visemeId, startTime.toDouble(), char: char);
         }
       }
     });
@@ -171,6 +174,10 @@ class _VoiceAssistantDemoState extends State<VoiceAssistantDemo> {
 
   // Helper methods to change the viseme value safely
   void _incrementViseme() {
+    if (isActive) {
+      debugPrint('Ignoring manual viseme control during TTS playback');
+      return;
+    }
     if (_visemeValue < 17) {
       setState(() {
         _visemeValue += 1;
@@ -182,6 +189,10 @@ class _VoiceAssistantDemoState extends State<VoiceAssistantDemo> {
   }
 
   void _decrementViseme() {
+    if (isActive) {
+      debugPrint('Ignoring manual viseme control during TTS playback');
+      return;
+    }
     if (_visemeValue > 1) {
       setState(() {
         _visemeValue -= 1;
@@ -237,6 +248,95 @@ class _VoiceAssistantDemoState extends State<VoiceAssistantDemo> {
       });
     }
     // else: character already finished speaking, skip highlighting
+  }
+
+  int _mapCharToViseme(String char) {
+    final lower = char.toLowerCase();
+
+    const bmpLetters = {'b', 'm', 'p'};
+    const bmpArabic = {'ب', 'م'};
+    if (bmpLetters.contains(lower) || bmpArabic.contains(char)) return 3;
+
+    const dtnLetters = {'d', 't', 'n'};
+    const dtnArabic = {'ت', 'د', 'ن', 'ط', 'ض'};
+    if (dtnLetters.contains(lower) || dtnArabic.contains(char)) return 5;
+
+    const eyLetters = {'e', 'y'};
+    const eyArabic = {'ي', 'ى', 'ئ', 'إ'};
+    if (eyLetters.contains(lower) || eyArabic.contains(char)) return 6;
+
+    const fvLetters = {'f', 'v'};
+    const fvArabic = {'ف', 'ڤ'};
+    if (fvLetters.contains(lower) || fvArabic.contains(char)) return 7;
+
+    const kLetters = {'k', 'g', 'c', 'q'};
+    const kArabic = {'ك', 'ق', 'ا', 'أ', 'آ', 'ٱ'};
+    if (kLetters.contains(lower) || kArabic.contains(char)) return 8;
+
+    const hLetters = {'h'};
+    const hArabic = {'ه', 'ح', 'خ', 'ع', 'غ'};
+    if (hLetters.contains(lower) || hArabic.contains(char)) return 9;
+
+    const rLetters = {'r'};
+    const rArabic = {'ر'};
+    if (rLetters.contains(lower) || rArabic.contains(char)) return 10;
+
+    const lLetters = {'l'};
+    const lArabic = {'ل'};
+    if (lLetters.contains(lower) || lArabic.contains(char)) return 11;
+
+    const ngLetters = {'ڭ'};
+    if (ngLetters.contains(char)) return 12;
+
+    const szLetters = {'s', 'z'};
+    const szArabic = {'س', 'ص', 'ز'};
+    if (szLetters.contains(lower) || szArabic.contains(char)) return 13;
+
+    const shLetters = {'j'};
+    const shArabic = {'ش', 'ج', 'چ'};
+    if (shLetters.contains(lower) || shArabic.contains(char)) return 14;
+
+    const thArabic = {'ث'};
+    if (thArabic.contains(char)) return 15;
+
+    const dhArabic = {'ذ', 'ظ'};
+    if (dhArabic.contains(char)) return 16;
+
+    const wLetters = {'w', 'o', 'u'};
+    const wArabic = {'و', 'ؤ', 'ء', 'ة'};
+    if (wLetters.contains(lower) || wArabic.contains(char)) return 17;
+
+    // Fallback: use default/neutral viseme when unknown
+    return 1;
+  }
+
+  void _scheduleViseme(int visemeId, double startTime, {String? char}) {
+    if (_audioStartTime == null) return;
+    if (_visemeInput == null) {
+      debugPrint('⚠️ Viseme input not initialized; skipping viseme $visemeId');
+      return;
+    }
+
+    final now = DateTime.now();
+    final audioElapsedMs = now.difference(_audioStartTime!).inMilliseconds;
+    final charStartMs = (startTime * 1000).toInt();
+    final delayMs = charStartMs - audioElapsedMs;
+
+    void applyViseme() {
+      if (!mounted) return;
+      _visemeInput?.value = visemeId.toDouble();
+      setState(() {
+        _visemeValue = visemeId;
+        _numberController.text = visemeId.toString();
+      });
+      debugPrint('👄 Viseme $visemeId applied at ${DateTime.now()} for "${char ?? '?'}"');
+    }
+
+    if (delayMs > 0) {
+      Future.delayed(Duration(milliseconds: delayMs), applyViseme);
+    } else {
+      applyViseme();
+    }
   }
 
   void _toggleAssistant() async {
@@ -397,6 +497,7 @@ class _VoiceAssistantDemoState extends State<VoiceAssistantDemo> {
                                     SizedBox(
                                       width: 60,
                                       child: TextField(
+                                        enabled: !isActive,
                                         controller: _numberController,
                                         textAlign: TextAlign.center,
                                         keyboardType: TextInputType.number,
@@ -445,13 +546,15 @@ class _VoiceAssistantDemoState extends State<VoiceAssistantDemo> {
                                         IconButton(
                                           icon: const Icon(Icons.arrow_drop_up,
                                               color: Colors.white70),
-                                          onPressed: _incrementViseme,
+                                          onPressed:
+                                              isActive ? null : _incrementViseme,
                                         ),
                                         IconButton(
                                           icon: const Icon(
                                               Icons.arrow_drop_down,
                                               color: Colors.white70),
-                                          onPressed: _decrementViseme,
+                                          onPressed:
+                                              isActive ? null : _decrementViseme,
                                         ),
                                       ],
                                     ),

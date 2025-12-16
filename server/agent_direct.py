@@ -69,7 +69,7 @@ class CharacterDataPublisher(io.TextOutput):
 class Assistant(Agent):
     def __init__(self) -> None:
         logger.info("Initializing Assistant agent")
-        super().__init__(instructions="Talk like a normal Arab human, be conversational,  very talkative,  chatty outgoing, be an attention seeker and basically a motor mouth. Use the syrian dialect exclusively. ")
+        super().__init__(instructions="talk in arabic fusha, keep answers as concise and short as possible")
 
 async def entrypoint(ctx: agents.JobContext):
     import time
