@@ -7,6 +7,10 @@ from livekit.plugins import openai, elevenlabs, silero
 from openai.types.beta.realtime.session import  InputAudioTranscription, TurnDetection
 import os
 import json
+import asyncio
+from pathlib import Path
+
+import context_handler
 
 # Configure logging
 logging.basicConfig(
@@ -19,7 +23,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-load_dotenv()
+# Ensure we load the server's .env regardless of current working directory.
+_ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=_ENV_PATH)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 voice_id = os.getenv("ELEVEN_VOICE_ID")
@@ -27,6 +33,7 @@ model = os.getenv("ELEVEN_MODEL")
 LIVEKIT_URL = os.getenv("LIVEKIT_URL")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
+CHARACTER_ID = os.getenv("CHARACTER_ID", "1")
 
 class CharacterDataPublisher(io.TextOutput):
     """Custom text output that publishes character-level timing data via data channel"""
@@ -67,9 +74,9 @@ class CharacterDataPublisher(io.TextOutput):
             self.next_in_chain.flush()
 
 class Assistant(Agent):
-    def __init__(self) -> None:
+    def __init__(self, instructions: str) -> None:
         logger.info("Initializing Assistant agent")
-        super().__init__(instructions="talk in arabic fusha, keep answers as concise and short as possible")
+        super().__init__(instructions=instructions)
 
 async def entrypoint(ctx: agents.JobContext):
     import time
@@ -81,6 +88,11 @@ async def entrypoint(ctx: agents.JobContext):
         t1 = time.time()
         await ctx.connect()
         logger.info(f"Connected to room in {time.time()-t1:.2f}s")
+
+        # Kick off system prompt retrieval ASAP and overlap with model init.
+        prompt_task: asyncio.Task[context_handler.SystemPromptResult] = asyncio.create_task(
+            context_handler.get_system_prompt_async(CHARACTER_ID)
+        )
         
         # Initialize models BEFORE starting session (faster perceived startup)
         logger.info("Loading VAD model...")
@@ -125,12 +137,35 @@ async def entrypoint(ctx: agents.JobContext):
         session.output.transcription = char_publisher
         logger.info("Character publisher injected")
 
+        # Resolve prompt right before starting the session (disk cache should be instant).
+        instructions = context_handler.fallback_system_prompt()
+        try:
+            prompt_timeout_seconds = float(os.getenv("SYSTEM_PROMPT_FETCH_TIMEOUT_SECONDS", "2.0"))
+        except ValueError:
+            prompt_timeout_seconds = 2.0
+
+        try:
+            prompt_result = await asyncio.wait_for(prompt_task, timeout=prompt_timeout_seconds)
+            instructions = prompt_result.prompt
+            logger.info(
+                "Loaded system prompt for character %s (source=%s)",
+                prompt_result.character_id,
+                prompt_result.source,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "System prompt fetch timed out after %.2fs; using fallback prompt",
+                prompt_timeout_seconds,
+            )
+        except Exception as e:
+            logger.warning("System prompt fetch failed; using fallback prompt: %s", str(e), exc_info=True)
+
         try:
             logger.info("Starting agent session...")
             t1 = time.time()
             await session.start(
                 room=ctx.room,
-                agent=Assistant(),
+                agent=Assistant(instructions=instructions),
             )
             logger.info(f"Agent session started in {time.time()-t1:.2f}s")
             logger.info(f"TOTAL ENTRYPOINT TIME: {time.time()-start_time:.2f}s")

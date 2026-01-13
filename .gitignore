@@ -40,6 +40,9 @@ ENV/
 .env
 !.example.env
 
+# Firebase credentials
+*firebase-adminsdk*.json
+
 # Python cache
 __pycache__/
 *.py[cod]

@@ -15,6 +15,16 @@ dependencies:
   
   rive: ^0.14.0-dev.14
 
+  video_player: ^2.8.6
+
+  circular_reveal_animation: ^2.0.1
+
+  flutter_svg: ^2.0.10
+
+  provider: ^6.1.2
+  firebase_core: ^2.32.0
+  cloud_firestore: ^4.17.5
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -26,4 +36,8 @@ flutter:
   
   assets:
     - assets/charachter.riv
+    - assets/charachterv2.riv
+    - assets/callsuccess.riv
+    - assets/images/
+    - assets/videos/intro_final.mp4
 
