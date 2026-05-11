@@ -3,9 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'config/supabase_config.dart';
-import 'data_providers/firebase_bootstrap.dart';
-import 'data_providers/firestore_character_profile_service.dart';
-import 'data_providers/firestore_user_profile_service.dart';
+import 'data_providers/character_profile_service.dart';
+import 'data_providers/user_profile_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/character_profile_provider.dart';
 import 'providers/navigation_provider.dart';
@@ -26,25 +25,7 @@ Future<void> main() async {
     anonKey: SupabaseConfig.anonKey,
   );
 
-  // Firebase still initialized for character profiles (not removed yet).
-  await _initializeFirebase();
-
   runApp(const AppRoot());
-}
-
-Future<void> _initializeFirebase() async {
-  try {
-    await FirebaseBootstrap.ensureInitialized();
-  } catch (error, stackTrace) {
-    FlutterError.reportError(
-      FlutterErrorDetails(
-        exception: error,
-        stack: stackTrace,
-        library: 'firebase_bootstrap',
-        context: ErrorDescription('while initializing Firebase'),
-      ),
-    );
-  }
 }
 
 class AppRoot extends StatelessWidget {
@@ -52,20 +33,17 @@ class AppRoot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final userProfileService = FirestoreUserProfileService();
-    final characterProfileService = FirestoreCharacterProfileService();
-
     return MultiProvider(
       providers: [
         // Supabase auth state.
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-        // Existing providers kept intact.
         ChangeNotifierProvider(create: (_) => NavigationProvider()),
         ChangeNotifierProvider(
-          create: (_) => UserProfileProvider(userProfileService),
+          create: (_) => UserProfileProvider(InMemoryUserProfileService()),
         ),
         ChangeNotifierProvider(
-          create: (_) => CharacterProfileProvider(characterProfileService),
+          create: (_) =>
+              CharacterProfileProvider(InMemoryCharacterProfileService()),
         ),
       ],
       child: MaterialApp(

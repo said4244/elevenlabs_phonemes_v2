@@ -22,8 +22,6 @@ dependencies:
   flutter_svg: ^2.0.10
 
   provider: ^6.1.2
-  firebase_core: ^2.32.0
-  cloud_firestore: ^4.17.5
   supabase_flutter: ^2.8.4
   http: ^1.2.2
 
