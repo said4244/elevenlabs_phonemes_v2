@@ -51,3 +51,6 @@ __pycache__/
 # Agent logs
 agent_debug.log
 *.log
+
+# Agent runtime files
+server/agent.pid

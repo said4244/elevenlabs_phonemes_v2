@@ -8,13 +8,19 @@ import 'data_providers/user_profile_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/character_profile_provider.dart';
 import 'providers/navigation_provider.dart';
+import 'providers/session_provider.dart';
 import 'providers/user_profile_provider.dart';
+import 'services/session_api_client.dart';
 import 'standardpages/auth_gate.dart';
 
 // Legacy admin flag used by CallPage / CharactersPage / CallSuccessPage.
 // The new admin dashboard (AdminDashboardPage) supersedes this for user mgmt.
 // Set to true only during local development to enable the old admin panels.
 const bool adminLogin = false;
+
+/// Base URL of the FastAPI backend.
+/// Update this for production or different environments.
+const String kBackendBaseUrl = 'http://localhost:8080';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +51,12 @@ class AppRoot extends StatelessWidget {
           create: (_) =>
               CharacterProfileProvider(InMemoryCharacterProfileService()),
         ),
+        // Session lifecycle provider.
+        ChangeNotifierProvider(
+          create: (_) => SessionProvider(
+            api: const SessionApiClient(baseUrl: kBackendBaseUrl),
+          ),
+        ),
       ],
       child: MaterialApp(
         title: 'Huda',
@@ -59,3 +71,4 @@ class AppRoot extends StatelessWidget {
     );
   }
 }
+

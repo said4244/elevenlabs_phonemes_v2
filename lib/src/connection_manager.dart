@@ -14,12 +14,14 @@ class ConnectionManager {
 
   final String tokenUrl;
   final String? livekitUrl;
+  final Map<String, String>? tokenHeaders;
   final void Function(String status)? onStatusChanged;
   final void Function(String event, Map<String, dynamic> data)? onEvent;
 
   ConnectionManager({
     required this.tokenUrl,
     this.livekitUrl,
+    this.tokenHeaders,
     this.onStatusChanged,
     this.onEvent,
   });
@@ -28,7 +30,7 @@ class ConnectionManager {
     VoiceAssistantLogger.info('Fetching connection token from: $tokenUrl');
 
     try {
-      final response = await http.get(Uri.parse(tokenUrl));
+      final response = await http.get(Uri.parse(tokenUrl), headers: tokenHeaders);
 
       VoiceAssistantLogger.debug(
           'Token server response status: ${response.statusCode}');

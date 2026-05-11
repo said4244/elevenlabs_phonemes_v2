@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/navigation_provider.dart';
+import '../providers/session_provider.dart';
 import '../services/mic_permission_service.dart';
 import '../services/rive_avatar_cache.dart';
 
@@ -16,7 +17,7 @@ class WaitingPage extends StatefulWidget {
 
 class _WaitingPageState extends State<WaitingPage> {
   bool _requesting = false;
-  String? _permissionError;
+  String? _errorMessage;
   Timer? _timer;
 
   void _preloadRive() {
@@ -27,9 +28,10 @@ class _WaitingPageState extends State<WaitingPage> {
     if (_requesting) return;
     setState(() {
       _requesting = true;
-      _permissionError = null;
+      _errorMessage = null;
     });
 
+    // ── 1. Request microphone permission ──────────────────────────────────
     final granted = await MicPermissionService.requestMicrophone();
 
     if (!mounted) return;
@@ -37,12 +39,27 @@ class _WaitingPageState extends State<WaitingPage> {
     if (!granted) {
       setState(() {
         _requesting = false;
-        _permissionError =
-            'Microphone access is required before starting the call.';
+        _errorMessage = 'Microphone access is required before starting the call.';
       });
       return;
     }
 
+    // ── 2. Prepare session (generates prompt, writes to DB) ───────────────
+    final sessionProv = context.read<SessionProvider>();
+    final ok = await sessionProv.prepareSession();
+
+    if (!mounted) return;
+
+    if (!ok) {
+      setState(() {
+        _requesting = false;
+        _errorMessage =
+            'Could not prepare session: ${sessionProv.lastError ?? 'Unknown error'}';
+      });
+      return;
+    }
+
+    // ── 3. Navigate to CallPage ───────────────────────────────────────────
     _timer?.cancel();
     _timer = Timer(const Duration(milliseconds: 250), () {
       if (!mounted) return;
@@ -65,7 +82,7 @@ class _WaitingPageState extends State<WaitingPage> {
 
   @override
   Widget build(BuildContext context) {
-    final errorMessage = _permissionError;
+    final errorMessage = _errorMessage;
 
     return Scaffold(
       body: Stack(
@@ -83,30 +100,23 @@ class _WaitingPageState extends State<WaitingPage> {
           Positioned.fill(
             child: Center(
               child: errorMessage == null
-                  ? const CircularProgressIndicator()
+                  ? const _LoadingIndicator()
                   : Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
-                            Icons.mic_off,
-                            color: Colors.white,
-                            size: 40,
-                          ),
+                          const Icon(Icons.error_outline, color: Colors.white70, size: 40),
                           const SizedBox(height: 16),
                           Text(
                             errorMessage,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                            ),
                             textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white70, fontSize: 14),
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 24),
                           ElevatedButton(
                             onPressed: _requestMicThenProceed,
-                            child: const Text('Allow Microphone'),
+                            child: const Text('Try Again'),
                           ),
                         ],
                       ),
@@ -115,6 +125,25 @@ class _WaitingPageState extends State<WaitingPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LoadingIndicator extends StatelessWidget {
+  const _LoadingIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        CircularProgressIndicator(color: Colors.white),
+        SizedBox(height: 16),
+        Text(
+          'Preparing your session...',
+          style: TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+      ],
     );
   }
 }

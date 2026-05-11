@@ -6,10 +6,12 @@ class ElevenLabsTtsService {
   ElevenLabsTtsService({
     required String tokenUrl,
     bool enableLogging = true,
+    Map<String, String>? tokenHeaders,
   }) : _assistant = VoiceAssistant(
           config: VoiceAssistantConfig(
             tokenUrl: tokenUrl,
             enableLogging: enableLogging,
+            tokenHeaders: tokenHeaders,
           ),
         );
 

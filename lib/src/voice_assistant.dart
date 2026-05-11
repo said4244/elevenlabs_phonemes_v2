@@ -15,11 +15,14 @@ class VoiceAssistantConfig {
   final String tokenUrl;
   final String? livekitUrl;
   final bool enableLogging;
+  /// Optional HTTP headers added to the token server request (e.g. Authorization).
+  final Map<String, String>? tokenHeaders;
 
   const VoiceAssistantConfig({
     required this.tokenUrl,
     this.livekitUrl,
     this.enableLogging = true,
+    this.tokenHeaders,
   });
 }
 
@@ -49,6 +52,7 @@ class VoiceAssistant {
     _connectionManager = ConnectionManager(
       tokenUrl: config.tokenUrl,
       livekitUrl: config.livekitUrl,
+      tokenHeaders: config.tokenHeaders,
       onStatusChanged: _handleStatusChange,
       onEvent: _handleEvent,
     );

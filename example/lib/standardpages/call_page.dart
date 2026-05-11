@@ -9,9 +9,10 @@ import 'package:rive/rive.dart';
 import '../controllers/rive_lipsync_controller.dart';
 import '../models/huda_avatar_types.dart';
 import '../providers/navigation_provider.dart';
+import '../providers/session_provider.dart';
 import '../services/elevenlabs_tts_service.dart';
 import '../services/rive_avatar_cache.dart';
-import '../main.dart' show adminLogin;
+import '../main.dart' show adminLogin, kBackendBaseUrl;
 import '../utils/lipsync_bug_logger.dart';
 import '../utils/lipsync_engine.dart';
 
@@ -68,6 +69,7 @@ class _CallPageState extends State<CallPage>
   int _lastSeq = -1;
 
   bool _isActive = false;
+  bool _callEndedOnce = false; // guard against duplicate _endCall invocations
   final List<_CharToken> _charBuffer = [];
   final List<_WordToken> _wordBuffer = [];
   final Map<int, int> _visibleCharIdToOffset = {};
@@ -97,8 +99,9 @@ class _CallPageState extends State<CallPage>
     }
 
     _tts = ElevenLabsTtsService(
-      tokenUrl: 'http://localhost:8080/token',
+      tokenUrl: _buildTokenUrl(),
       enableLogging: true,
+      tokenHeaders: _buildTokenHeaders(),
     );
 
     _bindTtsStreams();
@@ -345,6 +348,24 @@ class _CallPageState extends State<CallPage>
     });
   }
 
+  // ── Session token helpers ──────────────────────────────────────────────
+
+  /// Build the LiveKit token URL, including session_id and prompt_id as params.
+  String _buildTokenUrl() {
+    final session = context.read<SessionProvider>();
+    final tokenUrl = session.buildTokenUrl();
+    if (tokenUrl != null) return tokenUrl;
+    // Fallback for dev/testing when no session was prepared
+    return '$kBackendBaseUrl/token';
+  }
+
+  /// Build Authorization headers for the token server request.
+  Map<String, String> _buildTokenHeaders() {
+    return context.read<SessionProvider>().authHeaders();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   Future<void> _startCall() async {
     if (!mounted) return;
 
@@ -354,6 +375,10 @@ class _CallPageState extends State<CallPage>
 
     try {
       await _tts.start();
+      // Notify backend that LiveKit session has started
+      if (mounted) {
+        unawaited(context.read<SessionProvider>().markStarted());
+      }
     } catch (e, stackTrace) {
       debugPrint('Failed to start voice assistant: $e');
       debugPrintStack(stackTrace: stackTrace);
@@ -652,6 +677,10 @@ class _CallPageState extends State<CallPage>
   }
 
   Future<void> _endCall() async {
+    // Prevent duplicate invocations (e.g. button tap + stream disconnect).
+    if (_callEndedOnce) return;
+    _callEndedOnce = true;
+
     if (_isActive) {
       setState(() => _isActive = false);
       _rive?.applyPose(HudaPose.idle);
@@ -660,6 +689,11 @@ class _CallPageState extends State<CallPage>
 
     _ticker?.stop();
     _utteranceStopwatch.stop();
+
+    if (!mounted) return;
+
+    // Notify backend that the session has ended before navigating away.
+    await context.read<SessionProvider>().markEnded(reason: 'user_ended');
 
     if (!mounted) return;
     context.read<NavigationProvider>().goTo(AppPage.callSuccess);

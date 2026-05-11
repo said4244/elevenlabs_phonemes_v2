@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Wraps Supabase auth and exposes reactive state via ChangeNotifier.
 class AuthProvider extends ChangeNotifier {
+  bool _isLoading = false;
+
   AuthProvider() {
     // Listen to Supabase auth state changes and propagate them.
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {
@@ -17,7 +19,13 @@ class AuthProvider extends ChangeNotifier {
   /// The currently authenticated Supabase user, or null if not signed in.
   User? get currentUser => Supabase.instance.client.auth.currentUser;
 
+  /// The current Supabase session, or null if not signed in.
+  Session? get currentSession => Supabase.instance.client.auth.currentSession;
+
   bool get isLoggedIn => currentUser != null;
+
+  /// True while an auth operation (sign-in, sign-up, sign-out) is in progress.
+  bool get isLoading => _isLoading;
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -26,28 +34,46 @@ class AuthProvider extends ChangeNotifier {
   /// Register a new user with [email] and [password].
   /// Returns the [AuthResponse]; throws [AuthException] on failure.
   Future<AuthResponse> signUp(String email, String password) async {
-    final response = await Supabase.instance.client.auth.signUp(
-      email: email,
-      password: password,
-    );
+    _isLoading = true;
     notifyListeners();
-    return response;
+    try {
+      final response = await Supabase.instance.client.auth.signUp(
+        email: email,
+        password: password,
+      );
+      return response;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   /// Sign in an existing user with [email] and [password].
   Future<AuthResponse> signIn(String email, String password) async {
-    final response = await Supabase.instance.client.auth.signInWithPassword(
-      email: email,
-      password: password,
-    );
+    _isLoading = true;
     notifyListeners();
-    return response;
+    try {
+      final response = await Supabase.instance.client.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+      return response;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
-  /// Sign out the current user.
+  /// Sign out the current user and clear any cached session state.
   Future<void> signOut() async {
-    await Supabase.instance.client.auth.signOut();
+    _isLoading = true;
     notifyListeners();
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   /// Refresh the current session (e.g. after app resume).
@@ -63,3 +89,4 @@ class AuthProvider extends ChangeNotifier {
   String? get accessToken =>
       Supabase.instance.client.auth.currentSession?.accessToken;
 }
+
