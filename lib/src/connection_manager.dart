@@ -9,6 +9,8 @@ class ConnectionManager {
   EventsListener<RoomEvent>? _listener;
   RemoteParticipant? _agent;
   bool _isLocalSpeaking = false;
+  bool _isAgentSpeaking = false;
+  Future<void>? _disconnectFuture;
 
   final String tokenUrl;
   final String? livekitUrl;
@@ -36,7 +38,6 @@ class ConnectionManager {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         VoiceAssistantLogger.info('Successfully obtained connection token');
-        VoiceAssistantLogger.debug('Token response: ${response.body}');
 
         // Check for required fields
         final token = data['accessToken'] ?? data['token'] ?? '';
@@ -150,9 +151,8 @@ class ConnectionManager {
           'sid': event.participant.sid,
         });
 
-        if (event.participant.identity?.toLowerCase().contains('agent') ??
-            false) {
-          _agent = event.participant as RemoteParticipant;
+        if (event.participant.identity.toLowerCase().contains('agent')) {
+          _agent = event.participant;
           _notifyStatus('Agent connected - Ready to talk!');
           VoiceAssistantLogger.info('Agent identified and connected');
         }
@@ -166,6 +166,13 @@ class ConnectionManager {
 
         if (event.participant == _agent) {
           _agent = null;
+          if (_isAgentSpeaking) {
+            _isAgentSpeaking = false;
+            _notifyEvent('agent_speaking', {
+              'speaking': false,
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+            });
+          }
           _notifyStatus('Agent disconnected');
         }
       })
@@ -175,6 +182,7 @@ class ConnectionManager {
         _notifyEvent('track_subscribed', {
           'kind': event.track.kind.toString(),
           'participant': event.participant.identity,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
         });
       })
       ..on<TrackUnsubscribedEvent>((event) {
@@ -185,22 +193,32 @@ class ConnectionManager {
         final localSid = _room?.localParticipant?.sid;
         if (localSid == null) return;
 
-        final isSpeaking = event.speakers.any((p) => p.sid == localSid);
-        if (isSpeaking == _isLocalSpeaking) return;
+        final isLocalSpeakingNow = event.speakers.any((p) => p.sid == localSid);
+        if (isLocalSpeakingNow != _isLocalSpeaking) {
+          _isLocalSpeaking = isLocalSpeakingNow;
+          _notifyEvent('local_speaking', {'speaking': isLocalSpeakingNow});
+        }
 
-        _isLocalSpeaking = isSpeaking;
-        _notifyEvent('local_speaking', {'speaking': isSpeaking});
+        final agent = _agent;
+        if (agent != null) {
+          final isAgentSpeakingNow =
+              event.speakers.any((p) => p.sid == agent.sid);
+          if (isAgentSpeakingNow != _isAgentSpeaking) {
+            _isAgentSpeaking = isAgentSpeakingNow;
+            _notifyEvent('agent_speaking', {
+              'speaking': isAgentSpeakingNow,
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+            });
+          }
+        }
       })
       ..on<DataReceivedEvent>((event) {
         try {
           final dataString = utf8.decode(event.data);
-          VoiceAssistantLogger.debug('Data received: $dataString');
 
           // Try to parse as JSON first
           try {
             final data = jsonDecode(dataString);
-            _notifyEvent('data_received', data);
-
             // Check if this is transcription data
             if (data is Map &&
                 data.containsKey('type') &&
@@ -209,15 +227,21 @@ class ConnectionManager {
               if (text != null) {
                 final startTime = data['start_time'] as num?;
                 final endTime = data['end_time'] as num?;
+                final utteranceId = data['utterance_id'] as num?;
+                final seq = data['seq'] as num?;
                 VoiceAssistantLogger.debug(
                     'Transcription char: "$text" [${startTime}s -> ${endTime}s]');
                 _notifyEvent('transcription', {
                   'text': text,
                   'start_time': startTime,
                   'end_time': endTime,
+                  'utterance_id': utteranceId,
+                  'seq': seq,
                   'timestamp': DateTime.now().millisecondsSinceEpoch,
                 });
               }
+            } else if (data is Map) {
+              _notifyEvent('data_received', Map<String, dynamic>.from(data));
             }
           } catch (_) {
             // Not JSON, might be plain text transcription
@@ -242,6 +266,13 @@ class ConnectionManager {
           _isLocalSpeaking = false;
           _notifyEvent('local_speaking', {'speaking': false});
         }
+        if (_isAgentSpeaking) {
+          _isAgentSpeaking = false;
+          _notifyEvent('agent_speaking', {
+            'speaking': false,
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          });
+        }
         _notifyEvent('disconnected', {'reason': event.reason});
       })
       ..on<RoomReconnectingEvent>((event) {
@@ -257,6 +288,19 @@ class ConnectionManager {
   }
 
   Future<void> disconnect() async {
+    final existing = _disconnectFuture;
+    if (existing != null) return existing;
+
+    final future = _disconnectInternal();
+    _disconnectFuture = future;
+    try {
+      await future;
+    } finally {
+      _disconnectFuture = null;
+    }
+  }
+
+  Future<void> _disconnectInternal() async {
     VoiceAssistantLogger.info('Disconnecting from LiveKit');
 
     try {
@@ -290,7 +334,7 @@ class ConnectionManager {
     onEvent?.call(event, data);
   }
 
-  void dispose() {
-    disconnect();
+  Future<void> dispose() {
+    return disconnect();
   }
 }

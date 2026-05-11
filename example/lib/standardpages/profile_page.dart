@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../providers/auth_provider.dart';
 import '../providers/user_profile_provider.dart';
+import '../standardpages/admin_dashboard_page.dart';
+import '../standardpages/auth_gate.dart';
+
+// TODO: replace with real backend URL from config/env.
+const String _kBackendBaseUrl = 'http://localhost:8080';
 
 class ProfilePageContent extends StatefulWidget {
   const ProfilePageContent({super.key});
@@ -97,10 +103,51 @@ class _ProfilePageContentState extends State<ProfilePageContent> {
                   'No profile loaded.',
                   style: TextStyle(color: Colors.white),
                 ),
+              const SizedBox(height: 24),
+              // Admin button – only visible to emails in kAdminEmails.
+              _AdminSection(),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Conditionally renders the admin dashboard button for admin users.
+class _AdminSection extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final email = context.read<AuthProvider>().currentUser?.email ?? '';
+    if (!kAdminEmails.contains(email)) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Divider(color: Colors.white24),
+        const Text(
+          '🛡 Admin',
+          style: TextStyle(color: Colors.white54, fontSize: 12),
+        ),
+        const SizedBox(height: 8),
+        ElevatedButton.icon(
+          icon: const Icon(Icons.admin_panel_settings),
+          label: const Text('Open Admin Dashboard'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.deepOrange,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AdminDashboardPage(
+                  backendBaseUrl: _kBackendBaseUrl,
+                ),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

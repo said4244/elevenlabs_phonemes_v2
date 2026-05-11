@@ -30,7 +30,6 @@ class UserProfileProvider extends ChangeNotifier {
       _selectedUserId = userId;
     } finally {
       _setLoading(false);
-      notifyListeners();
     }
   }
 
@@ -40,7 +39,6 @@ class UserProfileProvider extends ChangeNotifier {
       _availableUserIds = await _service.listUserIds();
     } finally {
       _setLoading(false);
-      notifyListeners();
     }
   }
 
@@ -53,7 +51,6 @@ class UserProfileProvider extends ChangeNotifier {
       _availableUserIds = await _service.listUserIds();
     } finally {
       _setLoading(false);
-      notifyListeners();
     }
   }
 

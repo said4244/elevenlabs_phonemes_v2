@@ -307,11 +307,10 @@ class _CharactersPageContentState extends State<CharactersPageContent> {
                     for (final id in ids)
                       OutlinedButton(
                         onPressed: () async {
-                          await context
-                              .read<CharacterProfileProvider>()
-                              .load(id);
-                          final loaded =
-                              context.read<CharacterProfileProvider>().selected;
+                          final provider = context.read<CharacterProfileProvider>();
+                          await provider.load(id);
+                          if (!mounted) return;
+                          final loaded = provider.selected;
                           if (loaded != null) _applyProfileToForm(loaded);
                         },
                         child: Text(id),

@@ -10,7 +10,7 @@ class VoiceAssistantLogger {
       printEmojis: true,
       printTime: true,
     ),
-    level: Level.debug,
+    level: Level.info,
   );
 
   static void debug(String message, [dynamic error, StackTrace? stackTrace]) {

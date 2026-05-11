@@ -14,13 +14,19 @@ class RiveAvatarCache {
     if (inFlight != null) return inFlight;
 
     final controller = RiveLipSyncController(
-      assetPath: 'assets/charachterv2.riv',
-      stateMachineName: 'TalkingSM',
+      assetPath: 'assets/huda-character.riv',
     );
 
     final initFuture = controller.init().then((_) {
       _talking = controller;
       return controller;
+    }).catchError((error) {
+      if (identical(_talking, controller)) {
+        _talking = null;
+      }
+      throw error;
+    }).whenComplete(() {
+      _talkingInit = null;
     });
 
     _talkingInit = initFuture;

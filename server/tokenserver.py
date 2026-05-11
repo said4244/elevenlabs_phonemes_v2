@@ -5,8 +5,9 @@ from datetime import timedelta
 import os
 from dotenv import load_dotenv
 import logging
-import subprocess
-import psutil
+import uuid
+
+from admin_api import router as admin_router
 
 
 load_dotenv()
@@ -21,9 +22,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, specify your domains
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+# Mount admin routes.
+app.include_router(admin_router)
 
 
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
@@ -37,41 +41,19 @@ else:
     logger.info("LiveKit credentials loaded successfully")
     logger.info(f"LiveKit URL: {LIVEKIT_URL}")
 
-current_agent_process = None
-current_room_name = None
-
-def get_counter():
-    try:
-        with open('counter.txt', 'r') as f:
-            return int(f.read().strip())
-    except FileNotFoundError:
-        # Start from 50 if file doesn't exist
-        with open('counter.txt', 'w') as f:
-            f.write('50')
-        return 50
-
-def increment_counter():
-    counter = get_counter()
-    counter += 1
-    with open('counter.txt', 'w') as f:
-        f.write(str(counter))
-    return counter
-
-
 @app.get("/token")
 async def create_token(
     identity: str = None,
     room: str = None,
 ):
     """Generate a token for connecting to LiveKit room for TTS"""
-    # Get and increment counter from file
-    counter = increment_counter()
-    
+    session_id = uuid.uuid4().hex[:12]
+
     # Generate default values if none provided
     if identity is None:
-        identity = f"realtime-{counter}"
+        identity = f"realtime-{session_id}"
     if room is None:
-        room = f"realtime-{counter}"
+        room = f"realtime-{session_id}"
     
     if not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
         raise HTTPException(

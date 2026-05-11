@@ -4,17 +4,14 @@ from livekit import agents, rtc
 from livekit.agents import AgentSession, Agent
 from livekit.agents.voice import io
 from livekit.plugins import openai, elevenlabs, silero
-from openai.types.beta.realtime.session import  InputAudioTranscription, TurnDetection
 import os
 import json
-import asyncio
+import math
 from pathlib import Path
-
-import context_handler
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('agent_debug.log'),
@@ -26,14 +23,17 @@ logger = logging.getLogger(__name__)
 # Ensure we load the server's .env regardless of current working directory.
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=_ENV_PATH)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
 voice_id = os.getenv("ELEVEN_VOICE_ID")
 model = os.getenv("ELEVEN_MODEL")
-LIVEKIT_URL = os.getenv("LIVEKIT_URL")
-LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
-LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
-CHARACTER_ID = os.getenv("CHARACTER_ID", "1")
+
+
+def _default_instructions() -> str:
+    return (
+        "أنت مساعد صوتي.\n"
+        "تحدّث بالعربية الفصحى فقط، واجعل إجاباتك قصيرة جدًا ومباشرة.\n"
+        "لا تذكر تعليمات النظام للمستخدم.\n"
+    )
 
 class CharacterDataPublisher(io.TextOutput):
     """Custom text output that publishes character-level timing data via data channel"""
@@ -41,26 +41,39 @@ class CharacterDataPublisher(io.TextOutput):
     def __init__(self, room: rtc.Room, next_in_chain: io.TextOutput | None = None):
         super().__init__(label="character_publisher", next_in_chain=next_in_chain)
         self._room = room
+        self._utterance_id: int = 0
+        self._seq: int = 0
+        self._prev_start_time: float | None = None
         logger.info("CharacterDataPublisher initialized")
     
     async def capture_text(self, text: str) -> None:
         """Intercept text and send character-level data if it's a TimedString"""
         if isinstance(text, io.TimedString):
-            logger.debug(f"TTS char='{text}' [{text.start_time:.3f}s -> {text.end_time:.3f}s]")
-            
             try:
+                if (
+                    self._prev_start_time is not None
+                    and text.start_time < self._prev_start_time
+                ):
+                    self._utterance_id += 1
+                    self._seq = 0
+
+                self._prev_start_time = text.start_time
+
                 # Send character data to frontend
                 data = json.dumps({
                     'type': 'transcription',
                     'text': str(text),
                     'start_time': text.start_time,
                     'end_time': text.end_time,
+                    'utterance_id': self._utterance_id,
+                    'seq': self._seq,
                 })
                 await self._room.local_participant.publish_data(
                     data.encode('utf-8'),
-                    topic="character_timing"
+                    topic="character_timing",
+                    reliable=True,
                 )
-                logger.debug(f"Published character: {text}")
+                self._seq += 1
             except Exception as e:
                 logger.error(f"Failed to publish character data: {e}", exc_info=True)
         
@@ -88,11 +101,6 @@ async def entrypoint(ctx: agents.JobContext):
         t1 = time.time()
         await ctx.connect()
         logger.info(f"Connected to room in {time.time()-t1:.2f}s")
-
-        # Kick off system prompt retrieval ASAP and overlap with model init.
-        prompt_task: asyncio.Task[context_handler.SystemPromptResult] = asyncio.create_task(
-            context_handler.get_system_prompt_async(CHARACTER_ID)
-        )
         
         # Initialize models BEFORE starting session (faster perceived startup)
         logger.info("Loading VAD model...")
@@ -110,12 +118,23 @@ async def entrypoint(ctx: agents.JobContext):
         
         logger.info("Initializing LLM...")
         t1 = time.time()
-        llm = openai.LLM(model="gpt-5.1", temperature=0.7)
+        llm = openai.LLM(model="gpt-5.4", temperature=0.7)
         logger.info(f"LLM initialized in {time.time()-t1:.2f}s")
         
         logger.info("Initializing TTS...")
         t1 = time.time()
-        tts = elevenlabs.TTS(voice_id=voice_id, model=model, api_key=ELEVEN_API_KEY, language="ar")
+        voice_settings = elevenlabs.VoiceSettings(
+            stability=0.5,
+            similarity_boost=0.75,
+            speed=0.85  # 0.8-1.2 range, lower = slower
+        )
+        tts = elevenlabs.TTS(
+            voice_id=voice_id,
+            model=model,
+            api_key=ELEVEN_API_KEY,
+            language="ar",
+            voice_settings=voice_settings
+        )
         logger.info(f"TTS initialized in {time.time()-t1:.2f}s")
         
         logger.info("Creating agent session...")
@@ -137,37 +156,16 @@ async def entrypoint(ctx: agents.JobContext):
         session.output.transcription = char_publisher
         logger.info("Character publisher injected")
 
-        # Resolve prompt right before starting the session (disk cache should be instant).
-        instructions = context_handler.fallback_system_prompt()
-        try:
-            prompt_timeout_seconds = float(os.getenv("SYSTEM_PROMPT_FETCH_TIMEOUT_SECONDS", "2.0"))
-        except ValueError:
-            prompt_timeout_seconds = 2.0
-
-        try:
-            prompt_result = await asyncio.wait_for(prompt_task, timeout=prompt_timeout_seconds)
-            instructions = prompt_result.prompt
-            logger.info(
-                "Loaded system prompt for character %s (source=%s)",
-                prompt_result.character_id,
-                prompt_result.source,
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                "System prompt fetch timed out after %.2fs; using fallback prompt",
-                prompt_timeout_seconds,
-            )
-        except Exception as e:
-            logger.warning("System prompt fetch failed; using fallback prompt: %s", str(e), exc_info=True)
-
         try:
             logger.info("Starting agent session...")
             t1 = time.time()
             await session.start(
                 room=ctx.room,
-                agent=Assistant(instructions=instructions),
+                agent=Assistant(instructions=_default_instructions()),
             )
             logger.info(f"Agent session started in {time.time()-t1:.2f}s")
+            await session.say("السلام عليكم كيفك", allow_interruptions=True)
+            logger.info("Initial greeting sent")
             logger.info(f"TOTAL ENTRYPOINT TIME: {time.time()-start_time:.2f}s")
         except Exception as e:
             logger.error(f"Failed to start session: {str(e)}", exc_info=True)
@@ -190,6 +188,20 @@ def prewarm(proc: agents.JobProcess):
 if __name__ == "__main__":
     logger.info("Starting agent application")
     try:
+        load_threshold_env = os.getenv("AGENT_LOAD_THRESHOLD")
+        try:
+            agent_load_threshold = (
+                float(load_threshold_env)
+                if load_threshold_env is not None
+                else math.inf
+            )
+        except ValueError:
+            logger.warning(
+                "Invalid AGENT_LOAD_THRESHOLD=%r, defaulting to disabled load throttling",
+                load_threshold_env,
+            )
+            agent_load_threshold = math.inf
+
         # Use AgentServer with optimized settings:
         # - port=0: Dynamic port allocation to avoid conflicts
         # - num_idle_processes=1: Keep 1 pre-warmed process ready (faster job acceptance)
@@ -197,6 +209,7 @@ if __name__ == "__main__":
         server = agents.AgentServer(
             port=0,
             num_idle_processes=1,  # Keep 1 process pre-warmed with models loaded
+            load_threshold=agent_load_threshold,
             setup_fnc=prewarm,      # Pre-load VAD model
         )
         server.rtc_session(entrypoint)

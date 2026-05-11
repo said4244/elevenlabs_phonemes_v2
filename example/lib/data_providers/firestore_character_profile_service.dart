@@ -2,17 +2,21 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'character_profile.dart';
 import 'character_profile_service.dart';
+import 'firebase_bootstrap.dart';
 
 class FirestoreCharacterProfileService implements CharacterProfileService {
-  final FirebaseFirestore _db;
+  final FirebaseFirestore? _firestore;
   final String collectionPath;
 
   FirestoreCharacterProfileService({
     FirebaseFirestore? firestore,
     this.collectionPath = 'characters',
-  }) : _db = firestore ?? FirebaseFirestore.instance;
+  }) : _firestore = firestore;
 
-  CollectionReference<Map<String, dynamic>> get _col => _db.collection(collectionPath);
+  Future<CollectionReference<Map<String, dynamic>>> _getCollection() async {
+    await FirebaseBootstrap.ensureInitialized();
+    return (_firestore ?? FirebaseFirestore.instance).collection(collectionPath);
+  }
 
   int _clamp0to10(dynamic v, {int fallback = 5}) {
     final n = v is num ? v.toInt() : int.tryParse(v?.toString() ?? '');
@@ -22,7 +26,8 @@ class FirestoreCharacterProfileService implements CharacterProfileService {
 
   @override
   Future<CharacterProfile?> getCharacter(String characterId) async {
-    final doc = await _col.doc(characterId).get();
+    final col = await _getCollection();
+    final doc = await col.doc(characterId).get();
     if (!doc.exists) return null;
 
     final data = doc.data() ?? <String, dynamic>{};
@@ -53,7 +58,8 @@ class FirestoreCharacterProfileService implements CharacterProfileService {
 
   @override
   Future<void> upsertCharacter(CharacterProfile profile) async {
-    await _col.doc(profile.characterId).set({
+    final col = await _getCollection();
+    await col.doc(profile.characterId).set({
       'character_id': profile.characterId,
       'name': profile.name,
       'role_title': profile.roleTitle,
@@ -78,12 +84,14 @@ class FirestoreCharacterProfileService implements CharacterProfileService {
 
   @override
   Future<void> deleteCharacter(String characterId) async {
-    await _col.doc(characterId).delete();
+    final col = await _getCollection();
+    await col.doc(characterId).delete();
   }
 
   @override
   Future<List<String>> listCharacterIds() async {
-    final snap = await _col.get();
+    final col = await _getCollection();
+    final snap = await col.get();
     final ids = snap.docs.map((d) => d.id).toList()..sort();
     return ids;
   }

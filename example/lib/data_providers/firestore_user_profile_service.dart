@@ -2,22 +2,26 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'user_profile.dart';
 import 'user_profile_service.dart';
+import 'firebase_bootstrap.dart';
 
 class FirestoreUserProfileService implements UserProfileService {
-  final FirebaseFirestore _db;
+  final FirebaseFirestore? _firestore;
   final String collectionPath;
 
   FirestoreUserProfileService({
     FirebaseFirestore? firestore,
     this.collectionPath = 'user_profiles',
-  }) : _db = firestore ?? FirebaseFirestore.instance;
+  }) : _firestore = firestore;
 
-  CollectionReference<Map<String, dynamic>> get _col =>
-      _db.collection(collectionPath);
+  Future<CollectionReference<Map<String, dynamic>>> _getCollection() async {
+    await FirebaseBootstrap.ensureInitialized();
+    return (_firestore ?? FirebaseFirestore.instance).collection(collectionPath);
+  }
 
   @override
   Future<UserProfile?> getProfile(String userId) async {
-    final doc = await _col.doc(userId).get();
+    final col = await _getCollection();
+    final doc = await col.doc(userId).get();
     if (!doc.exists) return null;
 
     final data = doc.data() ?? <String, dynamic>{};
@@ -35,7 +39,8 @@ class FirestoreUserProfileService implements UserProfileService {
 
   @override
   Future<void> upsertProfile(UserProfile profile) async {
-    await _col.doc(profile.userId).set({
+    final col = await _getCollection();
+    await col.doc(profile.userId).set({
       'fav_subjects': profile.favSubjects,
       'language_level': profile.languageLevel,
       'struggles': profile.struggles,
@@ -48,12 +53,14 @@ class FirestoreUserProfileService implements UserProfileService {
 
   @override
   Future<void> deleteProfile(String userId) async {
-    await _col.doc(userId).delete();
+    final col = await _getCollection();
+    await col.doc(userId).delete();
   }
 
   @override
   Future<List<String>> listUserIds() async {
-    final snap = await _col.get();
+    final col = await _getCollection();
+    final snap = await col.get();
     final ids = snap.docs.map((d) => d.id).toList()..sort();
     return ids;
   }

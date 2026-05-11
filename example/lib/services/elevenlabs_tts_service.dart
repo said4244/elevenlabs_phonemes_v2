@@ -21,5 +21,5 @@ class ElevenLabsTtsService {
   Future<void> start() => _assistant.start();
   Future<void> stop() => _assistant.stop();
 
-  void dispose() => _assistant.dispose();
+  Future<void> dispose() => _assistant.dispose();
 }

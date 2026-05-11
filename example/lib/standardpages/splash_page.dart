@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:circular_reveal_animation/circular_reveal_animation.dart';
 import 'package:flutter/foundation.dart';
@@ -27,14 +28,19 @@ class _SplashPageState extends State<SplashPage>
   bool _transitionScheduled = false;
   bool _transitioning = false;
   bool _navigated = false;
-  bool _svgsPreloaded = false;
+  Timer? _fallbackTransitionTimer;
 
   @override
   void initState() {
     super.initState();
 
     // Start preloading SVGs in the background
-    _preloadSvgs();
+    unawaited(_preloadSvgs());
+
+    _fallbackTransitionTimer = Timer(
+      const Duration(seconds: 3),
+      _scheduleRevealTransition,
+    );
 
     _revealController = AnimationController(
       vsync: this,
@@ -89,16 +95,9 @@ class _SplashPageState extends State<SplashPage>
       await Future.wait(
         svgAssets.map((asset) => _precacheSvg(asset)),
       );
-
-      if (mounted) {
-        setState(() => _svgsPreloaded = true);
-      }
     } catch (e) {
       // If preloading fails, continue anyway - SVGs will load on-demand
       debugPrint('SVG preloading failed: $e');
-      if (mounted) {
-        setState(() => _svgsPreloaded = true);
-      }
     }
   }
 
@@ -128,24 +127,17 @@ class _SplashPageState extends State<SplashPage>
   void _scheduleRevealTransition() {
     if (_transitionScheduled || _transitioning || _navigated) return;
     _transitionScheduled = true;
+    _fallbackTransitionTimer?.cancel();
     _videoController.pause();
-
-    Future.delayed(const Duration(seconds: 1), () {
-      if (!mounted || _transitioning || _navigated) return;
-      setState(() => _transitioning = true);
-      _revealController.forward(from: 0);
-    });
+    if (!mounted) return;
+    setState(() => _transitioning = true);
+    _revealController.forward(from: 0);
   }
 
   Future<void> _goToMain() async {
     if (!mounted || _navigated) return;
     _navigated = true;
-    
-    // Wait for SVGs to finish preloading before navigating
-    while (!_svgsPreloaded && mounted) {
-      await Future.delayed(const Duration(milliseconds: 50));
-    }
-    
+
     if (mounted) {
       context.read<NavigationProvider>().goTo(AppPage.main);
     }
@@ -153,6 +145,7 @@ class _SplashPageState extends State<SplashPage>
 
   @override
   void dispose() {
+    _fallbackTransitionTimer?.cancel();
     _videoController.removeListener(_onVideoTick);
     _videoController.dispose();
     _revealController.dispose();

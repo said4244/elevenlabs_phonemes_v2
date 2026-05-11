@@ -24,6 +24,8 @@ dependencies:
   provider: ^6.1.2
   firebase_core: ^2.32.0
   cloud_firestore: ^4.17.5
+  supabase_flutter: ^2.8.4
+  http: ^1.2.2
 
 dev_dependencies:
   flutter_test:
@@ -37,6 +39,7 @@ flutter:
   assets:
     - assets/charachter.riv
     - assets/charachterv2.riv
+    - assets/huda-character.riv
     - assets/callsuccess.riv
     - assets/images/
     - assets/videos/intro_final.mp4

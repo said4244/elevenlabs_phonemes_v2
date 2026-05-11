@@ -24,7 +24,6 @@ class CharacterProfileProvider extends ChangeNotifier {
       _availableCharacterIds = await _service.listCharacterIds();
     } finally {
       _setLoading(false);
-      notifyListeners();
     }
   }
 
@@ -36,7 +35,6 @@ class CharacterProfileProvider extends ChangeNotifier {
       _selectedCharacterId = characterId;
     } finally {
       _setLoading(false);
-      notifyListeners();
     }
   }
 
@@ -49,7 +47,6 @@ class CharacterProfileProvider extends ChangeNotifier {
       _availableCharacterIds = await _service.listCharacterIds();
     } finally {
       _setLoading(false);
-      notifyListeners();
     }
   }
 

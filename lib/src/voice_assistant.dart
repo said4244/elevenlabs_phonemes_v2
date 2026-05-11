@@ -34,6 +34,8 @@ class VoiceAssistant {
   final _eventController = StreamController<Map<String, dynamic>>.broadcast();
   final _transcriptionController =
       StreamController<Map<String, dynamic>>.broadcast();
+  bool _isDisposed = false;
+  Future<void>? _disposeFuture;
 
   VoiceAssistant({required this.config}) {
     if (config.enableLogging) {
@@ -68,7 +70,10 @@ class VoiceAssistant {
     try {
       // Request permissions if on web
       if (kIsWeb) {
-        await WebAudioManager.requestMicrophonePermission();
+        final granted = await WebAudioManager.requestMicrophonePermission();
+        if (!granted) {
+          throw StateError('Microphone permission was denied.');
+        }
       }
 
       // Connect to LiveKit
@@ -101,14 +106,12 @@ class VoiceAssistant {
     }
   }
 
-  void dispose() {
+  Future<void> dispose() {
+    if (_disposeFuture != null) return _disposeFuture!;
     VoiceAssistantLogger.info('Disposing voice assistant');
-    stop();
-    _stateController.close();
-    _statusController.close();
-    _eventController.close();
-    _transcriptionController.close();
-    _connectionManager.dispose();
+    _isDisposed = true;
+    _disposeFuture = _dispose();
+    return _disposeFuture!;
   }
 
   // State and status
@@ -127,11 +130,14 @@ class VoiceAssistant {
   // Private methods
   void _updateState(ConnectionState newState) {
     _state = newState;
-    _stateController.add(newState);
+    if (!_stateController.isClosed && !_isDisposed) {
+      _stateController.add(newState);
+    }
     VoiceAssistantLogger.debug('State updated: $newState');
   }
 
   void _handleStatusChange(String status) {
+    if (_isDisposed || _statusController.isClosed) return;
     _statusMessage = status;
     _statusController.add(status);
 
@@ -152,6 +158,8 @@ class VoiceAssistant {
   }
 
   void _handleEvent(String event, Map<String, dynamic> data) {
+    if (_isDisposed || _eventController.isClosed) return;
+
     _eventController.add({
       'type': event,
       'data': data,
@@ -159,8 +167,21 @@ class VoiceAssistant {
     });
 
     // Handle transcription events - pass full data including timing
-    if (event == 'transcription') {
+    if (event == 'transcription' && !_transcriptionController.isClosed) {
       _transcriptionController.add(data);
+    }
+  }
+
+  Future<void> _dispose() async {
+    try {
+      await _connectionManager.disconnect();
+    } finally {
+      await Future.wait([
+        if (!_stateController.isClosed) _stateController.close(),
+        if (!_statusController.isClosed) _statusController.close(),
+        if (!_eventController.isClosed) _eventController.close(),
+        if (!_transcriptionController.isClosed) _transcriptionController.close(),
+      ]);
     }
   }
 }
