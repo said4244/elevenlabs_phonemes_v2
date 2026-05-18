@@ -108,6 +108,66 @@ class SessionApiClient {
     return uri.toString();
   }
 
+  /// Save a transcript to conversation_analysis.
+  Future<Map<String, dynamic>> saveTranscript(
+    String sessionId, {
+    required List<Map<String, dynamic>> messages,
+    String? promptId,
+    String? planId,
+  }) async {
+    final body = <String, dynamic>{
+      'messages': messages,
+      if (promptId != null) 'prompt_id': promptId,
+      if (planId != null) 'plan_id': planId,
+    };
+    final response = await http.post(
+      Uri.parse('$baseUrl/session/$sessionId/transcript'),
+      headers: _authHeaders(),
+      body: jsonEncode(body),
+    );
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception('Save transcript failed (${response.statusCode}): ${_errorDetail(response)}');
+  }
+
+  /// Complete a session: saves transcript, marks ended, runs analysis.
+  Future<Map<String, dynamic>> completeSession(
+    String sessionId, {
+    String? promptId,
+    String? planId,
+    required List<Map<String, dynamic>> messages,
+    String endReason = 'user_ended',
+  }) async {
+    final body = <String, dynamic>{
+      'messages': messages,
+      'end_reason': endReason,
+      if (promptId != null) 'prompt_id': promptId,
+      if (planId != null) 'plan_id': planId,
+    };
+    final response = await http.post(
+      Uri.parse('$baseUrl/session/$sessionId/complete'),
+      headers: _authHeaders(),
+      body: jsonEncode(body),
+    );
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception('Complete session failed (${response.statusCode}): ${_errorDetail(response)}');
+  }
+
+  /// Trigger AI analysis on a session with a saved transcript.
+  Future<Map<String, dynamic>> analyzeSession(String sessionId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/session/$sessionId/analyze'),
+      headers: _authHeaders(),
+    );
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception('Analyze session failed (${response.statusCode}): ${_errorDetail(response)}');
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------

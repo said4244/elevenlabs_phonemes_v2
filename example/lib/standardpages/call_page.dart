@@ -70,6 +70,11 @@ class _CallPageState extends State<CallPage>
 
   bool _isActive = false;
   bool _callEndedOnce = false; // guard against duplicate _endCall invocations
+
+  // Transcript accumulation: text is buffered per utterance and committed when
+  // a new utterance starts or the call ends.
+  String _currentAgentText = '';
+  int? _currentAgentUtteranceId;
   final List<_CharToken> _charBuffer = [];
   final List<_WordToken> _wordBuffer = [];
   final Map<int, int> _visibleCharIdToOffset = {};
@@ -182,6 +187,16 @@ class _CallPageState extends State<CallPage>
                 startTime.toDouble() < prevStartTime);
       }
 
+      // Finalize previous utterance transcript before starting a new one.
+      if (isNewUtterance) {
+        final prevText = _currentAgentText.trim();
+        if (prevText.isNotEmpty && mounted) {
+          context.read<SessionProvider>().addTranscriptMessage('assistant', prevText);
+        }
+        _currentAgentText = '';
+        _currentAgentUtteranceId = utteranceId;
+      }
+
       if (isNewUtterance && !hasLipSyncPieces) {
         return;
       }
@@ -249,6 +264,9 @@ class _CallPageState extends State<CallPage>
         if (seq <= _lastSeq) return;
         _lastSeq = seq;
       }
+
+      // Accumulate text for transcript capture (assistant speech).
+      _currentAgentText += text;
 
       // Log first transcription per utterance for bug analysis
       if (_enableLipSyncBugLogging && _isFirstTranscription) {
@@ -692,8 +710,18 @@ class _CallPageState extends State<CallPage>
 
     if (!mounted) return;
 
-    // Notify backend that the session has ended before navigating away.
-    await context.read<SessionProvider>().markEnded(reason: 'user_ended');
+    // Finalize any remaining agent utterance text.
+    final lastText = _currentAgentText.trim();
+    if (lastText.isNotEmpty) {
+      context.read<SessionProvider>().addTranscriptMessage('assistant', lastText);
+    }
+    _currentAgentText = '';
+
+    // TODO: Integrate user STT transcript when available from LiveKit agent.
+    // Currently only speaking start/stop timing is available, not text content.
+
+    // Complete session (saves transcript, marks ended, runs AI analysis).
+    await context.read<SessionProvider>().completeSession(reason: 'user_ended');
 
     if (!mounted) return;
     context.read<NavigationProvider>().goTo(AppPage.callSuccess);

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import '../services/admin_api_client.dart';
+import 'admin_session_list_page.dart';
 
 /// Admin dashboard for viewing all users and deleting test accounts.
 ///
@@ -185,10 +186,29 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                 ],
               ),
               isThreeLine: true,
-              trailing: IconButton(
-                icon: const Icon(Icons.delete_forever, color: Colors.red),
-                tooltip: 'Delete all data (TEST ONLY)',
-                onPressed: () => _deleteUser(userId, email),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.history),
+                    tooltip: 'View sessions',
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AdminSessionListPage(
+                          userId: userId,
+                          userEmail: email,
+                          backendBaseUrl: widget.backendBaseUrl,
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_forever, color: Colors.red),
+                    tooltip: 'Delete all data (TEST ONLY)',
+                    onPressed: () => _deleteUser(userId, email),
+                  ),
+                ],
               ),
             );
           },

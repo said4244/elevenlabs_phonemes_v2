@@ -22,12 +22,18 @@ class SessionProvider extends ChangeNotifier {
   String? _sessionId;
   String? _promptId;
   String? _roomName;
+  String? _planId;
+  List<Map<String, dynamic>> _selectedItems = [];
+  List<Map<String, dynamic>> _transcriptMessages = [];
   bool _isPreparing = false;
   String? _lastError;
 
   String? get currentSessionId => _sessionId;
   String? get currentPromptId => _promptId;
   String? get roomName => _roomName;
+  String? get planId => _planId;
+  List<Map<String, dynamic>> get selectedItems => List.unmodifiable(_selectedItems);
+  List<Map<String, dynamic>> get transcriptMessages => List.unmodifiable(_transcriptMessages);
   bool get isPreparing => _isPreparing;
   String? get lastError => _lastError;
   bool get hasSession => _sessionId != null;
@@ -50,6 +56,10 @@ class SessionProvider extends ChangeNotifier {
       _sessionId = data['session_id']?.toString();
       _promptId = data['prompt_id']?.toString();
       _roomName = data['room_name']?.toString();
+      _planId = data['plan_id']?.toString();
+      _selectedItems = (data['selected_items'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>();
+      _transcriptMessages.clear();
       _lastError = null;
       return true;
     } catch (e) {
@@ -84,6 +94,56 @@ class SessionProvider extends ChangeNotifier {
     }
   }
 
+  /// Add a message to the in-memory transcript buffer.
+  void addTranscriptMessage(
+    String role,
+    String text, {
+    Map<String, dynamic>? metadata,
+  }) {
+    if (text.trim().isEmpty) return;
+    final msg = <String, dynamic>{
+      'role': role,
+      'text': text,
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
+      if (metadata != null) 'metadata': metadata,
+    };
+    _transcriptMessages.add(msg);
+    notifyListeners();
+  }
+
+  /// Complete a session: saves transcript + ends session + runs AI analysis.
+  ///
+  /// Returns the response dict on success, or null if the call failed
+  /// (in which case a fallback [markEnded] is attempted).
+  Future<Map<String, dynamic>?> completeSession({
+    String reason = 'user_ended',
+  }) async {
+    final id = _sessionId;
+    if (id == null) return null;
+    try {
+      return await _api.completeSession(
+        id,
+        promptId: _promptId,
+        planId: _planId,
+        messages: _transcriptMessages,
+        endReason: reason,
+      );
+    } catch (e) {
+      debugPrint('[SessionProvider] completeSession error: $e');
+      // Fallback: at least mark session ended
+      try {
+        await _api.markEnded(id, reason: reason);
+      } catch (_) {}
+      return null;
+    }
+  }
+
+  /// Clear only the transcript buffer (e.g. after saving).
+  void clearTranscript() {
+    _transcriptMessages.clear();
+    notifyListeners();
+  }
+
   /// Build the full authenticated token URL for the LiveKit connection.
   ///
   /// Requires [prepareSession] to have succeeded first.
@@ -106,6 +166,9 @@ class SessionProvider extends ChangeNotifier {
     _sessionId = null;
     _promptId = null;
     _roomName = null;
+    _planId = null;
+    _selectedItems = [];
+    _transcriptMessages = [];
     _isPreparing = false;
     _lastError = null;
     notifyListeners();
