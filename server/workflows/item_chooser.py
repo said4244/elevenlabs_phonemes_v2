@@ -341,10 +341,11 @@ async def choose_items(
             )
         )
 
-    # If nothing was selected, return empty plan without DB writes
+    # If nothing was selected, return empty plan without DB writes.
+    # Return plan_id="" so callers treat it as no-plan (avoids FK violations).
     if not item_details:
         logger.warning("choose_items: no items selected for user=%s level=%s", user_id, current_level)
-        return {"plan_id": plan_id, "plan_row": {}, "items": [], "item_rows": []}
+        return {"plan_id": "", "plan_row": {}, "items": [], "item_rows": []}
 
     # --- Compute bucket shares --------------------------------------------
     review_count = sum(1 for b, *_ in selected if b == "review")

@@ -112,6 +112,11 @@ class _AdminSessionDetailPageState extends State<AdminSessionDetailPage> {
     final user = d['user'] as Map<String, dynamic>? ?? {};
     final hasTranscript = transcript != null;
     final hasAnalysis = analysis != null;
+    final messages = transcript != null
+        ? ((transcript['messages'] as List<dynamic>?)
+                ?.cast<Map<String, dynamic>>() ??
+            [])
+        : <Map<String, dynamic>>[];
 
     return ListView(
       padding: const EdgeInsets.all(12),
@@ -213,9 +218,6 @@ class _AdminSessionDetailPageState extends State<AdminSessionDetailPage> {
         if (!hasTranscript)
           const Text('No transcript saved.', style: TextStyle(color: Colors.grey))
         else ...[
-          final messages = (transcript!['messages'] as List<dynamic>?)
-                  ?.cast<Map<String, dynamic>>() ??
-              [],
           ...messages.map((m) {
             final role = m['role'] as String? ?? 'unknown';
             final text = m['text'] as String? ?? '';

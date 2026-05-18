@@ -100,7 +100,7 @@ async def _sb_post(path: str, body: Any, prefer: str = "return=representation") 
     if resp.status_code not in (200, 201):
         logger.error("Supabase POST %s -> %s: %s", path, resp.status_code, resp.text[:400])
         resp.raise_for_status()
-    return resp.json()
+    return resp.json() if resp.content else {}
 
 
 async def _sb_patch(path: str, body: dict, params: dict | None = None) -> Any:
@@ -291,7 +291,7 @@ async def prepare_session(
         selected_items = chooser_result.get("items", [])
     except Exception as exc:
         logger.warning("Item chooser failed (continuing without plan): %s", exc)
-        plan_id = str(uuid.uuid4())
+        plan_id = ""  # no plan saved to DB; don't create a dangling FK reference
 
     recent_analysis: dict | None = None
     try:
@@ -357,12 +357,44 @@ async def prepare_session(
             prompt_id = str(result[0].get("prompt_id") or result[0].get("id") or "")
         elif isinstance(result, dict):
             prompt_id = str(result.get("prompt_id") or result.get("id") or "")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 409:
+            logger.warning("Active prompt already exists for user=%s; reusing latest active prompt", user_id)
+            try:
+                existing_rows = await _sb_get(
+                    "/rest/v1/user_cached_prompts",
+                    params={
+                        "select": "prompt_id,prompt_metadata",
+                        "user_id": f"eq.{user_id}",
+                        "prompt_status": "eq.active",
+                        "order": "valid_from.desc",
+                        "limit": "1",
+                    },
+                )
+                if existing_rows:
+                    prompt_id = str(existing_rows[0].get("prompt_id") or "")
+                    if prompt_id:
+                        existing_meta = existing_rows[0].get("prompt_metadata") or {}
+                        if isinstance(existing_meta, dict):
+                            patched_meta = {
+                                **existing_meta,
+                                "session_id": session_id,
+                                "room_name": room_name,
+                            }
+                            await _sb_patch(
+                                "/rest/v1/user_cached_prompts",
+                                {"prompt_metadata": patched_meta},
+                                params={"prompt_id": f"eq.{prompt_id}"},
+                            )
+            except Exception as inner_exc:
+                logger.error("Failed to recover existing prompt after 409 conflict: %s", inner_exc)
+        else:
+            logger.error("Failed to store prompt: %s", exc)
     except Exception as exc:
         logger.error("Failed to store prompt: %s", exc)
 
     if not prompt_id:
-        prompt_id = str(uuid.uuid4())
-        logger.warning("Using fallback prompt_id: %s", prompt_id)
+        logger.warning("No prompt_id available; proceeding without prompt_id for this session")
 
     await _insert_session_evidence(
         session_id=session_id,
@@ -506,6 +538,29 @@ async def save_transcript(
         except Exception as exc:
             logger.info("Could not resolve prompt_id for session %s: %s", session_id, exc)
 
+    if prompt_id:
+        try:
+            prompt_rows = await _sb_get(
+                "/rest/v1/user_cached_prompts",
+                params={
+                    "select": "prompt_id",
+                    "prompt_id": f"eq.{prompt_id}",
+                    "user_id": f"eq.{user_id}",
+                    "limit": "1",
+                },
+            )
+            if not prompt_rows:
+                logger.warning(
+                    "Ignoring prompt_id=%s for session=%s because it does not belong to user=%s",
+                    prompt_id,
+                    session_id,
+                    user_id,
+                )
+                prompt_id = ""
+        except Exception as exc:
+            logger.warning("Prompt_id validation failed for session %s: %s", session_id, exc)
+            prompt_id = ""
+
     transcript_json = {
         "session_id": session_id,
         "messages": [m.model_dump(exclude_none=True) for m in req.messages],
@@ -537,7 +592,7 @@ async def save_transcript(
             "plan_id": req.plan_id or None,
             "prompt_id": prompt_id or None,
             "transcript": transcript_json,
-            "analysis": None,
+            "analysis": {},  # placeholder; overwritten by /analyze once AI runs
         }
         try:
             result = await _sb_post("/rest/v1/conversation_analysis", row)

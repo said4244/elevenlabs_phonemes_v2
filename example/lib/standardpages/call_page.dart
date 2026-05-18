@@ -267,6 +267,7 @@ class _CallPageState extends State<CallPage>
 
       // Accumulate text for transcript capture (assistant speech).
       _currentAgentText += text;
+      debugPrint('[CallPage] stream text chunk: "$text" | total so far: ${_currentAgentText.length} chars');
 
       // Log first transcription per utterance for bug analysis
       if (_enableLipSyncBugLogging && _isFirstTranscription) {
@@ -721,7 +722,13 @@ class _CallPageState extends State<CallPage>
     // Currently only speaking start/stop timing is available, not text content.
 
     // Complete session (saves transcript, marks ended, runs AI analysis).
-    await context.read<SessionProvider>().completeSession(reason: 'user_ended');
+    final sessionProv = context.read<SessionProvider>();
+    debugPrint('[CallPage] Sending ${sessionProv.transcriptMessages.length} transcript messages');
+    for (final m in sessionProv.transcriptMessages) {
+      debugPrint('[CallPage]   ${m['role']}: ${(m['text'] as String).substring(0, (m['text'] as String).length.clamp(0, 80))}');
+    }
+    final result = await sessionProv.completeSession(reason: 'user_ended');
+    debugPrint('[CallPage] completeSession result: $result');
 
     if (!mounted) return;
     context.read<NavigationProvider>().goTo(AppPage.callSuccess);
